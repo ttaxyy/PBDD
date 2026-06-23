@@ -37,6 +37,7 @@ DECLARE
     v_total_asgn_prof               NUMBER := 0;
     v_res_total_asgn                NUMBER := 0;
 
+    ---Excepción definida por el usuario
     excepcion_limite                EXCEPTION;
     
     /* ==========================================
@@ -145,48 +146,50 @@ BEGIN
             
                 ---Asigna valor a variable desde el cursor 
                 FOR asignacion IN cur_asignaciones(profesional.numrun_prof) LOOP
+                    ---TODO: Manejar errores en caso de que no haya asesoría
                     v_num_asesorias := asignacion.num_ases;
-                    v_hnrarios := asignacion.honorarios;
+                    v_hnrarios      := asignacion.honorarios;
                 END LOOP;
                 
-                IF v_num_asesorias > 0 THEN ---Solo agrega al registro si tiene asesorías---
+                IF v_num_asesorias > 0 THEN  ---Por ahora, para mostrar solo los que tienen asesorías
                 
                     ---Asignación por movilidad extra---
                         --- Comuna = Santiago ---
                     IF profesional.cod_comuna = 82 AND v_hnrarios < 350000 THEN
-                        v_asgn_extra := varray_porcentaje(1) * 0.01 * v_hnrarios;
+                        v_asgn_extra := ROUND(varray_porcentaje(1) * 0.01 * v_hnrarios);
                         
                         --- Comuna = Ñuñoa ---
                     ELSIF profesional.cod_comuna = 83 THEN
-                        v_asgn_extra := varray_porcentaje(2) * 0.01 * v_hnrarios;
+                        v_asgn_extra := ROUND(varray_porcentaje(2) * 0.01 * v_hnrarios);
                         
                         --- Comuna = La Reina ---
                     ELSIF profesional.cod_comuna = 85 AND v_hnrarios < 400000 THEN
-                        v_asgn_extra := varray_porcentaje(3) * 0.01 * v_hnrarios;
+                        v_asgn_extra := ROUND(varray_porcentaje(3) * 0.01 * v_hnrarios);
                         
                         --- Comuna = La Florida ---
                     ELSIF profesional.cod_comuna = 86 AND v_hnrarios < 800000 THEN
-                        v_asgn_extra := varray_porcentaje(4) * 0.01 * v_hnrarios;
+                        v_asgn_extra := ROUND(varray_porcentaje(4) * 0.01 * v_hnrarios);
                         
                         --- Comuna = Macul ---
                     ELSIF profesional.cod_comuna = 89 AND v_hnrarios < 680000 THEN
-                        v_asgn_extra := varray_porcentaje(5) * 0.01 * v_hnrarios;
+                        v_asgn_extra := ROUND(varray_porcentaje(5) * 0.01 * v_hnrarios);
                     END IF;
                     
                     ---Asignación por tipo de contrato (calculado respecto a la suma de honorarios)---
                     FOR tp_contrato IN cur_porc_tpcontrato LOOP
                         IF profesional.cod_tpcontrato = tp_contrato.cod_tpcontrato THEN
-                            v_asgn_tpcontrato := v_hnrarios * 0.01 * tp_contrato.incentivo;
+                            v_asgn_tpcontrato := ROUND(v_hnrarios * 0.01 * tp_contrato.incentivo);
                         END IF;
                     END LOOP;
                     
                     ---Asignación por profesión (calculada en base a sueldo)---
                     FOR profesion IN cur_porc_profesion LOOP
                         IF profesional.cod_profesion = profesion.cod_profesion THEN
-                            v_asgn_profesion := profesional.sueldo * 0.01 * profesion.asignacion;
+                            v_asgn_profesion := ROUND(profesional.sueldo * 0.01 * profesion.asignacion);
                         END IF;
                     END LOOP;
                     
+                    ---Manejo de total de asignaciones---
                     BEGIN
                     IF v_asgn_extra + v_asgn_tpcontrato + v_asgn_profesion < :b_limite THEN
                         v_total_asgn            := v_asgn_extra + v_asgn_tpcontrato + v_asgn_profesion;
@@ -195,15 +198,15 @@ BEGIN
                         RAISE excepcion_limite;
                     END IF;
                     
+                    /* ==========================================
+                                MANEJO DE ERROR LÍMITE
+                       ========================================== */
                     EXCEPTION
                         WHEN excepcion_limite THEN
                             --- Registrar el error pero continuar con el proceso ---
-                            EXECUTE IMMEDIATE '
-                            INSERT INTO ERRORES_PROCESO VALUES (
-                                SQ_ERRORES.NEXTVAL,
-                                ''TOPE_SUPERADO'',
-                                ''Profesional ' || profesional.numrun_prof || ': se reemplazó el monto total por el límite.''
-                            )';
+                            INSERT INTO ERRORES_PROCESO VALUES (SQ_ERRORES.NEXTVAL, 'TOPE_SUPERADO',
+                                'Se reemplazó el monto total de las asignaciones calculadas de ' || (v_asgn_extra + v_asgn_tpcontrato + v_asgn_profesion) || ' por el monto límite de ' || :b_limite || ' para el run Nro. ' || profesional.numrun_prof
+                            );
                     END;
                     
                     ---Asignar datos a registro---
@@ -247,6 +250,10 @@ BEGIN
     COMMIT;
     
 EXCEPTION
+    /* WHEN NO_DATA_FOUND THEN
+        INSERT INTO ERRORES_PROCESO VALUES (SQ_ERRORES.NEXTVAL, SQLERRM,
+         'Error al obtener porcentaje de asignación para el rut Nro. ' || profesional.numrun_prof
+        ); */
     WHEN OTHERS THEN
         DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
 END;
