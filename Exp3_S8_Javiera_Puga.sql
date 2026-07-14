@@ -35,10 +35,10 @@ IS
         (p_annio IN NUMBER)
         RETURN NUMBER
     IS
-        v_monto_promedio NUMBER;
+        v_promedio_calculado NUMBER;
     BEGIN
         SELECT ROUND(AVG(total_boleta))
-        INTO v_monto_promedio
+        INTO v_promedio_calculado
         FROM (
             SELECT db.nro_boleta,
             AVG(db.valor_total) AS total_boleta
@@ -48,10 +48,13 @@ IS
             GROUP BY db.nro_boleta
         );
         
+        v_monto_promedio := NVL(v_promedio_calculado, 0);
+        
         DBMS_OUTPUT.PUT_LINE('Promedio: ' || v_monto_promedio);
         RETURN v_monto_promedio;
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
+            v_monto_promedio := 0;
             RETURN 0;
     END F_OBTENER_MONTO_PROMEDIO;
  
@@ -172,7 +175,6 @@ IS
     v_porc_antiguedad NUMBER;
     v_asig_antiguedad NUMBER;
     v_asig_estudio    NUMBER;
-    v_promedio        NUMBER;
  
      CURSOR cur_datos_empleado IS
         SELECT e.run_empleado,
@@ -185,7 +187,7 @@ BEGIN
     EXECUTE IMMEDIATE 'TRUNCATE TABLE ERROR_CALC';
  
     pkg_gestion_promedio.v_annio_proceso := EXTRACT(YEAR FROM p_fecha_proceso);
-    v_promedio := PKG_GESTION_PROMEDIO.F_OBTENER_MONTO_PROMEDIO(pkg_gestion_promedio.v_annio_proceso);
+    PKG_GESTION_PROMEDIO.F_OBTENER_MONTO_PROMEDIO(pkg_gestion_promedio.v_annio_proceso);
     
  
     FOR empleado IN cur_datos_empleado LOOP
@@ -193,7 +195,7 @@ BEGIN
  
         --- Cálculo de asignación por antigüedad ---
         BEGIN
-            IF (FN_RECIBE_ASIGNACION(empleado.run_empleado, v_promedio) = 1) THEN
+            IF (FN_RECIBE_ASIGNACION(empleado.run_empleado, pkg_gestion_promedio.v_monto_promedio) = 1) THEN
                 v_porc_antiguedad := FN_PORC_ANTIGUEDAD(empleado.run_empleado);
                 v_asig_antiguedad := v_porc_antiguedad * 0.01 * empleado.sueldo_base;
                 DBMS_OUTPUT.PUT_LINE('Recibe asignación.');
@@ -202,12 +204,13 @@ BEGIN
                 DBMS_OUTPUT.PUT_LINE('No recibe asignación.');
             END IF;
         EXCEPTION
+        ---- Manejo Error ----
             WHEN OTHERS THEN
                 v_asig_antiguedad := 0;
                 PKG_GESTION_PROMEDIO.P_INSERTAR_ERROR(
                     'FN_RECIBE_ASIGNACION / FN_PORC_ANTIGUEDAD',
                     SQLERRM,
-                    'Error al calcular asignación por antigüedad para RUT ' || empleado.run_empleado
+                    'Error al calcular asignación por antigüedad para RUT: ' || empleado.run_empleado
                 );
         END;
  
@@ -215,12 +218,13 @@ BEGIN
         BEGIN
             v_asig_estudio := FN_PORC_ESTUDIOS(empleado.run_empleado) * 0.01 * empleado.sueldo_base;
         EXCEPTION
+        ---- Manejo Error ----
             WHEN OTHERS THEN
                 v_asig_estudio := 0;
                 PKG_GESTION_PROMEDIO.P_INSERTAR_ERROR(
                     'FN_PORC_ESTUDIOS',
                     SQLERRM,
-                    'Error al calcular asignación por escolaridad para RUT ' || empleado.run_empleado
+                    'Error al calcular asignación por nivel de estudio para RUT: ' || empleado.run_empleado
                 );
         END;
  
@@ -244,9 +248,9 @@ END SP_CALCULO_ASIGNACIONES_VENDEDORES;
                 TRIGGER
    ========================================== */
  
-/*CREATE OR REPLACE TRIGGER TRG_CONTROL_PRODUCTO
-    FOR INSERT OR DELETE OR UPDATE OF valor_unitario ON PRODUCTO
- 
+/*
+CREATE OR REPLACE TRIGGER TRG_CONTROL_PRODUCTO
+    FOR INSERT OR DELETE OR UPDATE ON PRODUCTO
 BEGIN
  
 END TRG_CONTROL_PRODUCTO;
