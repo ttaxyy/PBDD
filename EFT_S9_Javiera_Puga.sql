@@ -85,7 +85,7 @@ IS
     
         RETURN v_puntaje_extra;
     EXCEPTION
-        WHEN NO_DATA_FOUND THEN
+        WHEN OTHERS THEN
             PKG_GESTION_PUNTAJE.P_INSERTAR_ERROR('F_OBTENER_PUNTAJE_EXTRA', SQLERRM);
             v_puntaje_extra := 0;
             RETURN 0;
